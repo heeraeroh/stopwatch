@@ -1,0 +1,419 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>엔드게임 스탑워치</title>
+<style>
+  :root { --gold:#ffcf4a; --red:#e0222b; --ink:#0d0816; --text:#fff4dc; --muted:#9d8fb3; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body { display:flex; flex-direction:column; height:100dvh; overflow:hidden; background:var(--ink); color:var(--text);
+    font-family:"Bahnschrift","Segoe UI","Malgun Gothic",system-ui,sans-serif; }
+
+  /* ===== Stage ===== */
+  .stage { flex:1; min-height:0; position:relative; }
+  svg#scene { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  svg * { transform-box:fill-box; }
+
+  .actor .body { transform-origin:50% 100%; animation-play-state:paused; }
+  .battle .actor .body { animation-play-state:running; }
+  .hero .body { animation:lungeR 1.1s ease-in-out infinite; }
+  .foe  .body { animation:lungeL 1.1s ease-in-out infinite; }
+  .a2 .body { animation-delay:-.3s; } .a3 .body { animation-delay:-.6s; }
+  .b1 .body { animation-delay:-.2s; } .b2 .body { animation-delay:-.7s; } .b3 .body { animation-delay:-.45s; animation-duration:1.5s; }
+  @keyframes lungeR { 0%,100%{transform:translateX(0) rotate(0)} 35%{transform:translateX(-4px) rotate(-3deg)} 55%{transform:translateX(26px) rotate(7deg)} 70%{transform:translateX(18px) rotate(3deg)} }
+  @keyframes lungeL { 0%,100%{transform:translateX(0) rotate(0)} 35%{transform:translateX(4px) rotate(3deg)} 55%{transform:translateX(-26px) rotate(-7deg)} 70%{transform:translateX(-18px) rotate(-3deg)} }
+  .bolt { animation:flick .18s steps(2) infinite; animation-play-state:paused; opacity:0; }
+  .battle .bolt { animation-play-state:running; opacity:1; }
+  @keyframes flick { 50%{opacity:.25} }
+  .star { animation:tw 3s ease-in-out infinite; }
+  @keyframes tw { 50%{opacity:.25} }
+  .glow { animation:glowp 2.4s ease-in-out infinite; }
+  @keyframes glowp { 50%{opacity:.55} }
+
+  #dim { fill:#05020a; opacity:0; transition:opacity .35s; }
+  .snap #dim { opacity:.72; }
+  #gauntlet { transform:translate(450px,215px) scale(.7); opacity:0; transition:opacity .35s, transform .45s cubic-bezier(.2,1.4,.4,1); }
+  .snap #gauntlet { opacity:1; transform:translate(450px,215px) scale(1.15); }
+  #ironman { transform:translate(230px,340px) scale(1.55); opacity:0; transition:opacity .4s, transform .5s ease-out; }
+  .snap #ironman { opacity:1; transform:translate(285px,340px) scale(1.55); }
+  .foe { transition:opacity .9s; }
+  .dust .foe { opacity:.12; }
+  #ready { opacity:0; transition:opacity .4s; }
+  .idle #ready { opacity:1; animation:tw 2s ease-in-out infinite; }
+  #snapText { opacity:0; transform-origin:50% 50%; font-weight:900; paint-order:stroke; }
+
+  /* ===== Panel ===== */
+  .panel { flex:none; padding:14px 16px calc(16px + env(safe-area-inset-bottom));
+    background:linear-gradient(#170d24,#0d0816); border-top:2px solid #6b4b12;
+    box-shadow:0 -6px 24px rgba(255,160,40,.12); }
+  .wrap { max-width:460px; margin:0 auto; }
+  .time { text-align:center; font-size:clamp(46px,13vw,68px); font-weight:700; letter-spacing:1px;
+    font-variant-numeric:tabular-nums; color:var(--gold); text-shadow:0 0 18px rgba(255,170,40,.45); line-height:1.05; }
+  .time small { font-size:.5em; color:#e98a2c; }
+  .btns { display:flex; gap:10px; margin-top:12px; }
+  button { flex:1; padding:13px 6px; border:1px solid #3a2a52; border-radius:12px; font:inherit; font-size:16px; font-weight:700;
+    cursor:pointer; background:#241638; color:var(--text); transition:transform .08s, filter .15s; }
+  button:active:not(:disabled) { transform:scale(.97); }
+  button:hover:not(:disabled) { filter:brightness(1.15); }
+  button:disabled { opacity:.35; cursor:default; }
+  button:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+  #start { flex:1.4; border:0; color:#fff; background:linear-gradient(135deg,#d11a2a,#f0791f); }
+  #start.running { background:#2c1f42; border:1px solid #e0222b; color:#ff8a8a; }
+  #lap { border-color:#8a6a1c; color:var(--gold); background:linear-gradient(#2c2010,#1d1408); }
+  .lapsbox { margin-top:10px; max-height:min(132px,16vh); overflow-y:auto; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { display:grid; grid-template-columns:1fr 1fr 1fr; padding:6px 4px; border-top:1px solid #2a1c3d; font-size:14px; font-variant-numeric:tabular-nums; }
+  li span:nth-child(1) { color:var(--gold); } li span:nth-child(2) { text-align:center; } li span:nth-child(3) { text-align:right; color:var(--muted); }
+  .empty { text-align:center; color:var(--muted); font-size:13px; padding:8px 0 2px; }
+  .hint { text-align:center; color:#6f6285; font-size:11px; margin-top:6px; }
+
+  @media (prefers-reduced-motion: reduce) { .actor .body, .star, .glow, .bolt { animation:none !important; } }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<svg id="scene" class="idle" viewBox="0 0 800 450" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d0820"/><stop offset=".55" stop-color="#3a1448"/><stop offset=".85" stop-color="#b8412f"/><stop offset="1" stop-color="#ff9a3d"/>
+    </linearGradient>
+    <linearGradient id="gnd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a2236"/><stop offset="1" stop-color="#150b1a"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe48a"/><stop offset="1" stop-color="#d9962a"/></linearGradient>
+    <linearGradient id="ironred" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f0343a"/><stop offset="1" stop-color="#9d1018"/></linearGradient>
+    <radialGradient id="sun" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#ffb04a" stop-opacity=".9"/><stop offset="1" stop-color="#ff7a3d" stop-opacity="0"/></radialGradient>
+  </defs>
+
+  <!-- background -->
+  <rect x="-2000" y="-400" width="4800" height="800" fill="url(#sky)"/>
+  <g id="stars"></g>
+  <ellipse class="glow" cx="400" cy="330" rx="420" ry="90" fill="url(#sun)"/>
+  <g fill="#1d0f26">
+    <path d="M-2000 335 L120 335 L120 270 L150 270 L155 240 L185 250 L190 335 Z"/>
+    <path d="M610 335 L640 262 L664 262 L672 300 L700 285 L712 335 Z"/>
+    <path d="M700 335 L2800 335 L2800 300 L760 300 L745 270 L722 275 L716 335Z"/>
+    <path d="M200 335 L225 290 L252 290 L262 335Z"/>
+  </g>
+  <rect x="-2000" y="330" width="4800" height="400" fill="url(#gnd)"/>
+  <g fill="#25142a"><ellipse cx="320" cy="334" rx="40" ry="5"/><ellipse cx="520" cy="338" rx="55" ry="6"/><ellipse cx="170" cy="340" rx="30" ry="4"/></g>
+
+  <!-- foes -->
+  <g class="foe-group">
+    <!-- Outrider 1 -->
+    <g class="actor foe b1" transform="translate(448,330)"><g class="body">
+      <path d="M-20 0 L-16 -28 Q-22 -50 -6 -60 Q12 -70 22 -52 Q30 -36 20 -24 L24 0 Z" fill="#4a2a78"/>
+      <path d="M-6 -60 L-12 -80 L0 -64 L4 -84 L10 -64 L20 -76 L18 -54Z" fill="#2c1850"/>
+      <path d="M-14 -40 L-34 -26" stroke="#4a2a78" stroke-width="7" stroke-linecap="round"/>
+      <path d="M-34 -26 l-6 -2 m6 2 l-5 5 m5 -5 l1 6" stroke="#cdb8ff" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="-4" cy="-52" r="3" fill="#ff4fa3"/><circle cx="6" cy="-54" r="3" fill="#ff4fa3"/>
+    </g></g>
+    <!-- Outrider 2 -->
+    <g class="actor foe b2" transform="translate(482,330) scale(.92)"><g class="body">
+      <path d="M-20 0 L-16 -28 Q-22 -50 -6 -60 Q12 -70 22 -52 Q30 -36 20 -24 L24 0 Z" fill="#573391"/>
+      <path d="M-6 -60 L-12 -80 L0 -64 L4 -84 L10 -64 L20 -76 L18 -54Z" fill="#33205c"/>
+      <path d="M-14 -40 L-34 -26" stroke="#573391" stroke-width="7" stroke-linecap="round"/>
+      <path d="M-34 -26 l-6 -2 m6 2 l-5 5 m5 -5 l1 6" stroke="#cdb8ff" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="-4" cy="-52" r="3" fill="#ff4fa3"/><circle cx="6" cy="-54" r="3" fill="#ff4fa3"/>
+    </g></g>
+    <!-- Thanos -->
+    <g class="actor foe b3" transform="translate(534,330) scale(1.5)"><g class="body">
+      <rect x="-14" y="-34" width="11" height="34" rx="4" fill="#1d2f6b"/><rect x="3" y="-34" width="11" height="34" rx="4" fill="#1d2f6b"/>
+      <path d="M-24 -40 Q-28 -72 -12 -80 L12 -80 Q28 -72 24 -40 Z" fill="#274690"/>
+      <path d="M-20 -48 L20 -48 L18 -42 L-18 -42Z" fill="url(#gold)"/>
+      <circle cx="-26" cy="-58" r="8" fill="#9b6fd3"/><path d="M-22 -62 L-34 -44" stroke="#9b6fd3" stroke-width="9" stroke-linecap="round"/>
+      <path d="M22 -70 L36 -50" stroke="#9b6fd3" stroke-width="9" stroke-linecap="round"/>
+      <path d="M-10 -92 Q0 -102 10 -92 L11 -82 Q0 -72 -11 -82Z" fill="#9b6fd3"/>
+      <path d="M-11 -90 L-18 -108 L-6 -96 L0 -112 L6 -96 L18 -108 L11 -90 Q0 -98 -11 -90Z" fill="url(#gold)"/>
+      <path d="M-6 -86 L-2 -85 M3 -85 L7 -86" stroke="#2a1040" stroke-width="2" stroke-linecap="round"/>
+    </g></g>
+  </g>
+
+  <!-- heroes -->
+  <!-- Hulk -->
+  <g class="actor hero a1" transform="translate(262,330) scale(1.35)"><g class="body">
+    <rect x="-14" y="-34" width="12" height="34" rx="5" fill="#3f9a3a"/><rect x="2" y="-34" width="12" height="34" rx="5" fill="#3f9a3a"/>
+    <rect x="-17" y="-42" width="34" height="16" rx="5" fill="#7a3fb0"/>
+    <path d="M-26 -42 Q-30 -78 -12 -84 L12 -84 Q30 -78 26 -42 Z" fill="#4cb344"/>
+    <circle cx="-30" cy="-52" r="10" fill="#4cb344"/>
+    <rect x="20" y="-70" width="14" height="26" rx="7" fill="#4cb344" transform="rotate(-25 27 -58)"/><circle cx="36" cy="-74" r="11" fill="#4cb344"/>
+    <circle cx="0" cy="-93" r="11" fill="#4cb344"/>
+    <path d="M-11 -97 Q0 -110 11 -97 L11 -101 Q0 -113 -11 -101Z" fill="#1a1a1a"/>
+    <path d="M-7 -94 L-1 -91 M7 -94 L1 -91" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+  </g></g>
+  <!-- Captain America -->
+  <g class="actor hero a2" transform="translate(322,330)"><g class="body">
+    <rect x="-12" y="-30" width="10" height="30" rx="3" fill="#1d3b8f"/><rect x="2" y="-30" width="10" height="30" rx="3" fill="#1d3b8f"/>
+    <rect x="-12" y="-8" width="10" height="8" fill="#b01620"/><rect x="2" y="-8" width="10" height="8" fill="#b01620"/>
+    <rect x="-16" y="-66" width="32" height="40" rx="9" fill="#2455c8"/>
+    <rect x="-16" y="-38" width="32" height="5" fill="#e8e8f0"/><rect x="-16" y="-33" width="32" height="5" fill="#c4222d"/>
+    <circle cx="0" cy="-58" r="5" fill="#fff"/>
+    <circle cx="0" cy="-78" r="12" fill="#f3c9a0"/>
+    <path d="M-12 -78 Q-12 -93 0 -93 Q12 -93 12 -78 L8 -80 L-8 -80Z" fill="#2455c8"/>
+    <rect x="-3" y="-90" width="6" height="7" fill="#fff"/>
+    <path d="M14 -56 L34 -50" stroke="#f3c9a0" stroke-width="7" stroke-linecap="round"/>
+    <g transform="translate(34,-50)"><circle r="21" fill="#c4222d"/><circle r="15" fill="#e8e8f0"/><circle r="10" fill="#c4222d"/><circle r="6" fill="#2455c8"/><circle r="2.5" fill="#fff"/></g>
+  </g></g>
+  <!-- Thor -->
+  <g class="actor hero a3" transform="translate(376,330)"><g class="body">
+    <path d="M-14 -62 Q-30 -30 -18 -2 L-8 -8 L-8 -60Z" fill="#b01620"/>
+    <rect x="-12" y="-30" width="10" height="30" rx="3" fill="#2a2f3c"/><rect x="2" y="-30" width="10" height="30" rx="3" fill="#2a2f3c"/>
+    <rect x="-16" y="-66" width="32" height="40" rx="9" fill="#5b6678"/>
+    <circle cx="-7" cy="-52" r="4" fill="#c9d3e3"/><circle cx="7" cy="-52" r="4" fill="#c9d3e3"/>
+    <circle cx="0" cy="-78" r="12" fill="#f3c9a0"/>
+    <path d="M-13 -76 Q-14 -94 0 -94 Q14 -94 13 -76 L11 -66 L7 -80 L-7 -80 L-11 -66Z" fill="#f2cf55"/>
+    <path d="M14 -58 L30 -76" stroke="#f3c9a0" stroke-width="7" stroke-linecap="round"/>
+    <g transform="rotate(30 30 -76)"><rect x="28" y="-110" width="4" height="40" fill="#6b4a2a"/><rect x="18" y="-122" width="24" height="14" rx="3" fill="#aeb8c8"/></g>
+    <g class="bolt" fill="none" stroke="#fff27a" stroke-width="2.5" stroke-linejoin="round">
+      <polyline points="16,-128 22,-142 18,-142 26,-158"/><polyline points="40,-120 52,-132 47,-134 58,-146"/><polyline points="10,-96 -2,-112 4,-112 -8,-128"/>
+    </g>
+  </g></g>
+
+  <!-- clash marker glow -->
+  <ellipse class="glow" cx="402" cy="300" rx="22" ry="34" fill="#ffd27a" opacity=".18"/>
+
+  <rect id="dim" x="-2000" y="-400" width="4800" height="1200"/>
+
+  <!-- Iron Man gauntlet -->
+  <g id="gauntlet"><g id="gj">
+    <!-- forearm -->
+    <path d="M-46 110 L46 110 L40 48 L-40 48 Z" fill="url(#ironred)" stroke="#6b0a10" stroke-width="3"/>
+    <rect x="-44" y="66" width="88" height="10" fill="url(#gold)"/>
+    <circle cx="0" cy="92" r="9" fill="#bfeaff"/><circle cx="0" cy="92" r="4.5" fill="#fff"/>
+    <!-- fingers (behind) -->
+    <g stroke-linecap="round">
+      <g><line x1="-34" y1="-24" x2="-34" y2="-70" stroke="#7a4a00" stroke-width="19"/><line x1="-34" y1="-24" x2="-34" y2="-70" stroke="#f5be3c" stroke-width="14"/><line x1="-34" y1="-24" x2="-34" y2="-44" stroke="#d8262e" stroke-width="14"/></g>
+      <g><line x1="12" y1="-24" x2="12" y2="-72" stroke="#7a4a00" stroke-width="19"/><line x1="12" y1="-24" x2="12" y2="-72" stroke="#f5be3c" stroke-width="14"/><line x1="12" y1="-24" x2="12" y2="-44" stroke="#d8262e" stroke-width="14"/></g>
+      <g><line x1="35" y1="-18" x2="35" y2="-58" stroke="#7a4a00" stroke-width="19"/><line x1="35" y1="-18" x2="35" y2="-58" stroke="#f5be3c" stroke-width="14"/><line x1="35" y1="-18" x2="35" y2="-38" stroke="#d8262e" stroke-width="14"/></g>
+      <g id="mid"><line x1="-11" y1="-28" x2="-11" y2="-90" stroke="#7a4a00" stroke-width="19"/><line x1="-11" y1="-28" x2="-11" y2="-90" stroke="#f5be3c" stroke-width="14"/><line x1="-11" y1="-28" x2="-11" y2="-50" stroke="#d8262e" stroke-width="14"/></g>
+      <g id="thumb"><line x1="-52" y1="-6" x2="-58" y2="-62" stroke="#7a4a00" stroke-width="19"/><line x1="-52" y1="-6" x2="-58" y2="-62" stroke="#f5be3c" stroke-width="14"/><line x1="-52" y1="-6" x2="-54" y2="-28" stroke="#d8262e" stroke-width="14"/></g>
+    </g>
+    <!-- back of hand -->
+    <rect x="-50" y="-32" width="100" height="90" rx="26" fill="url(#gold)" stroke="#7a4a00" stroke-width="3"/>
+    <path d="M-40 40 Q0 62 40 40" fill="none" stroke="url(#ironred)" stroke-width="8" stroke-linecap="round"/>
+    <g id="slots" fill="#2a1a05" stroke="#7a4a00" stroke-width="2"></g>
+    <circle id="sparkMeet" cx="-56" cy="-68" r="0" fill="#fff"/>
+  </g></g>
+
+  <!-- Iron Man bust -->
+  <g id="ironman"><g>
+    <path d="M46 -42 Q86 -40 102 -8" fill="none" stroke="#6b0a10" stroke-width="30" stroke-linecap="round"/>
+    <path d="M46 -42 Q86 -40 102 -8" fill="none" stroke="#d8262e" stroke-width="24" stroke-linecap="round"/>
+    <path d="M70 -38 L74 -22" stroke="#ffcf4a" stroke-width="5" stroke-linecap="round"/>
+    <path d="M-62 0 L-54 -40 Q-30 -56 0 -56 Q30 -56 54 -40 L62 0 Z" fill="url(#ironred)" stroke="#6b0a10" stroke-width="3"/>
+    <path d="M-26 -50 L26 -50 L17 -10 L-17 -10Z" fill="url(#gold)" stroke="#7a4a00" stroke-width="2"/>
+    <circle class="glow" cx="0" cy="-30" r="15" fill="#8fe0ff" opacity=".6"/><circle cx="0" cy="-30" r="8" fill="#e8fbff"/>
+    <rect x="-12" y="-64" width="24" height="14" fill="url(#gold)" stroke="#7a4a00" stroke-width="2"/>
+    <path d="M-27 -66 Q-30 -114 0 -120 Q30 -114 27 -66 Q20 -52 0 -50 Q-20 -52 -27 -66Z" fill="url(#ironred)" stroke="#6b0a10" stroke-width="3"/>
+    <path d="M-19 -102 Q0 -110 19 -102 L16 -68 Q0 -58 -16 -68Z" fill="url(#gold)" stroke="#7a4a00" stroke-width="2"/>
+    <path d="M-15 -90 L-4 -87 L-4 -82 L-15 -85Z M15 -90 L4 -87 L4 -82 L15 -85Z" fill="#fff"/>
+    <path d="M-7 -70 L7 -70" stroke="#7a4a00" stroke-width="2" stroke-linecap="round"/>
+  </g></g>
+
+  <g id="stones"></g>
+  <g id="fx"></g>
+  <rect id="flash" x="-2000" y="-400" width="4800" height="1200" fill="#fff" opacity="0"/>
+  <circle id="ring" cx="450" cy="215" r="20" fill="none" stroke="#fff" stroke-width="3" vector-effect="non-scaling-stroke" opacity="0"/>
+  <text id="snapText" x="400" y="92" text-anchor="middle" font-size="70" fill="#ffd23f" stroke="#b3001b" stroke-width="7">SNAP!</text>
+  <text id="ready" x="400" y="60" text-anchor="middle" font-size="22" fill="#ffe9b0" font-weight="700" stroke="#000" stroke-width="3" paint-order="stroke">시작 버튼을 눌러 전투 개시!</text>
+  <text id="snapSub" x="400" y="128" text-anchor="middle" font-size="19" fill="#fff" opacity="0" font-weight="700" stroke="#000" stroke-width="3" paint-order="stroke">…나는 아이언맨이다.</text>
+</svg>
+</div>
+
+<div class="panel"><div class="wrap">
+  <div class="time" id="display" role="timer" aria-label="경과 시간">00:00<small>.00</small></div>
+  <div class="btns">
+    <button id="lap" disabled>랩 · 스냅</button>
+    <button id="start">시작</button>
+    <button id="reset" disabled>초기화</button>
+  </div>
+  <div class="lapsbox"><ul id="laps"></ul><div class="empty" id="empty">시작 후 '랩'을 누르면 스톤을 모아 핑거스냅!</div></div>
+  <div class="hint">스페이스 = 시작/정지 · L = 랩 · R = 초기화</div>
+</div></div>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+const $ = id => document.getElementById(id);
+const mk = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+const scene = $('scene'), stage = $('stage');
+
+/* ---------- scene setup ---------- */
+for (let i = 0; i < 70; i++) {
+  const c = mk('circle', { cx: Math.random()*1600 - 400, cy: Math.random()*210, r: Math.random()*1.3 + .4, fill: '#fff', opacity: Math.random()*.7 + .2, class: 'star' }, $('stars'));
+  c.style.animationDelay = (-Math.random()*3) + 's';
+}
+const GC = { x: 450, y: 215, s: 1.15 };
+const SLOT = [[-33,-14],[-11,-20],[11,-20],[33,-14],[0,18],[-47,22]];
+SLOT.forEach(([x,y],i) => mk('circle', { cx:x, cy:y, r: 11 }, $('slots')));
+const slotPos = i => [GC.x + SLOT[i][0]*GC.s, GC.y + SLOT[i][1]*GC.s];
+
+const COLORS = ['#2d8cff','#ffd23f','#ff3b3b','#b24bff','#2ee06a','#ff9a1f']; // space, mind, reality, power, time, soul
+const stones = COLORS.map((color, i) => {
+  const g = mk('g', {}, $('stones'));
+  const halo = mk('circle', { r: 16, fill: color, opacity: .35 }, g);
+  mk('circle', { r: 9, fill: color, stroke: '#fff', 'stroke-opacity': .7, 'stroke-width': 1.5 }, g);
+  mk('circle', { cx: -3, cy: -3, r: 3, fill: '#fff', opacity: .85 }, g);
+  return { g, halo, color, dir: 0, t0: -1e9, dur: 600 };
+});
+const ease = t => t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2;
+const orbit = (i, now) => {
+  const a = now*0.0009 + i*Math.PI/3;
+  return [400 + Math.cos(a)*88, 88 + Math.sin(a)*20 + Math.sin(now*0.003 + i)*3];
+};
+function setDir(dir, stagger, dur) {
+  const now = performance.now();
+  stones.forEach((s, i) => { s.dir = dir; s.t0 = now + i*stagger; s.dur = dur; });
+}
+
+/* ---------- particles ---------- */
+const fx = $('fx'), parts = [];
+function spawn(x, y, vx, vy, life, color, r, grav, shape) {
+  const el = shape === 'rect' ? mk('rect', { width: r*2, height: r*2, fill: color }, fx) : mk('circle', { r, fill: color }, fx);
+  parts.push({ el, x, y, vx, vy, life, max: life, grav, shape });
+}
+function sparks(x, y, n) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random()*Math.PI*2, v = 60 + Math.random()*160;
+    spawn(x, y, Math.cos(a)*v, Math.sin(a)*v - 40, .35 + Math.random()*.35, Math.random() < .5 ? '#ffd27a' : '#fff', 1.4 + Math.random()*1.6, 420);
+  }
+}
+function ashes() {
+  for (let i = 0; i < 90; i++) {
+    const x = GC.x + (Math.random()-.5)*160, y = GC.y + (Math.random()-.5)*160;
+    const a = Math.random()*Math.PI*2, v = 40 + Math.random()*180;
+    spawn(x, y, Math.cos(a)*v + 40, Math.sin(a)*v - 60, 1.2 + Math.random()*1.0, ['#ffd27a','#d8cfe8','#9a8fb0','#ff9a1f'][i%4], 1.5 + Math.random()*2.4, -30, 'rect');
+  }
+  for (let i = 0; i < 60; i++) {
+    const x = 410 + Math.random()*190, y = 250 + Math.random()*80;
+    spawn(x, y, 30 + Math.random()*90, -40 - Math.random()*80, 1.4 + Math.random(), i%2 ? '#9b6fd3' : '#4a2a78', 1.5 + Math.random()*2.2, -20, 'rect');
+  }
+}
+
+/* ---------- snap sequence ---------- */
+let snapping = false, snapT0 = 0, running = false;
+const midF = $('mid'), thumb = $('thumb'), gj = $('gj');
+function runSnap() {
+  if (snapping) return;
+  snapping = true; snapT0 = performance.now();
+  scene.classList.add('snap');
+  setDir(1, 110, 550);
+  setTimeout(boom, 1800);
+  setTimeout(() => { scene.classList.remove('snap'); setDir(0, 60, 550); }, 2600);
+  setTimeout(() => { snapping = false; scene.classList.remove('dust'); }, 3500);
+}
+let actx = null;
+function snapSound() {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = actx.currentTime, n = actx.createBuffer(1, actx.sampleRate*.5, actx.sampleRate), d = n.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2 - 1) * Math.exp(-i/(actx.sampleRate*.06));
+    const src = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+    src.buffer = n; f.type = 'highpass'; f.frequency.value = 1800; g.gain.value = .35;
+    src.connect(f); f.connect(g); g.connect(actx.destination); src.start(t);
+    const o = actx.createOscillator(), og = actx.createGain();
+    o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(40, t + .6);
+    og.gain.setValueAtTime(.4, t); og.gain.exponentialRampToValueAtTime(.001, t + .6);
+    o.connect(og); og.connect(actx.destination); o.start(t); o.stop(t + .6);
+  } catch (e) {}
+}
+function boom() {
+  $('flash').animate([{ opacity: .85 }, { opacity: 0 }], { duration: 520, easing: 'ease-out' });
+  snapSound();
+  $('ring').animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(9)' }], { duration: 800, easing: 'ease-out' });
+  $('snapText').animate([
+    { opacity: 0, transform: 'scale(.4) rotate(-6deg)', offset: 0 }, { opacity: 1, transform: 'scale(1.18) rotate(-3deg)', offset: .15 },
+    { opacity: 1, transform: 'scale(1) rotate(-3deg)', offset: .3 }, { opacity: 1, transform: 'scale(1) rotate(-3deg)', offset: .75 }, { opacity: 0, transform: 'scale(1) rotate(-3deg)', offset: 1 }
+  ], { duration: 1500 });
+  $('snapSub').animate([{ opacity: 0, offset: 0 }, { opacity: 0, offset: .25 }, { opacity: 1, offset: .4 }, { opacity: 1, offset: .75 }, { opacity: 0, offset: 1 }], { duration: 1500 });
+  scene.classList.add('dust'); ashes();
+  document.querySelector('.panel').animate([{ boxShadow: '0 -6px 40px rgba(255,200,80,.9)' }, { boxShadow: '0 -6px 24px rgba(255,160,40,.12)' }], { duration: 700 });
+}
+
+/* ---------- main loop ---------- */
+let lastSpark = 0, last = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - last)/1000); last = now;
+  // stones
+  stones.forEach((s, i) => {
+    const raw = Math.max(0, Math.min(1, (now - s.t0)/s.dur));
+    let f = ease(raw); if (s.dir === 0) f = 1 - f;
+    const o = orbit(i, now), sp = slotPos(i);
+    const x = o[0] + (sp[0] - o[0])*f, y = o[1] + (sp[1] - o[1])*f;
+    const attached = f > .98;
+    const pulse = 1 + .18*Math.sin(now*0.008 + i) + (attached && snapping ? .25 : 0);
+    s.g.setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${(attached ? 1.15 : 1).toFixed(2)})`);
+    s.halo.setAttribute('r', (14*pulse).toFixed(1));
+    if (f > .05 && f < .95 && Math.random() < .5) spawn(x, y, (Math.random()-.5)*20, (Math.random()-.5)*20, .35, s.color, 2.2, 0);
+  });
+  // gauntlet fingers + shake
+  if (snapping) {
+    const d = now - snapT0; let ang = 0;
+    if (d > 1250 && d < 1750) ang = -48*ease((d-1250)/500);
+    else if (d >= 1750 && d < 1800) ang = -48 + Math.sin(d)*0.8;
+    else if (d >= 1800 && d < 1960) ang = -48 + 53*((d-1800)/160);
+    else if (d >= 1960) ang = 5*(1 - Math.min(1, (d-1960)/300));
+    midF.setAttribute('transform', `rotate(${ang.toFixed(1)} -11 -28)`);
+    thumb.setAttribute('transform', `rotate(${(-ang*.12).toFixed(1)} -52 -8)`);
+    const shake = (d > 1100 && d < 1800) ? 2.2 : 0;
+    gj.setAttribute('transform', `translate(${((Math.random()-.5)*shake).toFixed(1)} ${((Math.random()-.5)*shake).toFixed(1)})`);
+    $('sparkMeet').setAttribute('r', (d > 1700 && d < 1830) ? 12 + (d - 1700)/10 : 0);
+  }
+  // battle sparks
+  if (running && now - lastSpark > 320) { lastSpark = now; sparks(402 + (Math.random()-.5)*30, 290 + (Math.random()-.5)*50, 9); }
+  // particles
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]; p.life -= dt;
+    if (p.life <= 0) { p.el.remove(); parts.splice(i, 1); continue; }
+    p.vy += p.grav*dt; p.x += p.vx*dt; p.y += p.vy*dt;
+    if (p.shape === 'rect') { p.el.setAttribute('x', p.x); p.el.setAttribute('y', p.y); } else { p.el.setAttribute('cx', p.x); p.el.setAttribute('cy', p.y); }
+    p.el.setAttribute('opacity', Math.max(0, p.life/p.max).toFixed(2));
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- stopwatch ---------- */
+const display = $('display'), startBtn = $('start'), lapBtn = $('lap'), resetBtn = $('reset'), lapsEl = $('laps'), emptyEl = $('empty');
+let elapsed = 0, startTime = 0, timer = null, lastLap = 0, laps = [];
+const p2 = n => String(n).padStart(2, '0');
+function parts2(ms) { return { main: (Math.floor(ms/3600000) ? p2(Math.floor(ms/3600000)) + ':' : '') + p2(Math.floor(ms/60000)%60) + ':' + p2(Math.floor(ms/1000)%60), cs: p2(Math.floor(ms/10)%100) }; }
+const fmt = ms => { const t = parts2(ms); return t.main + '.' + t.cs; };
+function render(ms) { const t = parts2(ms); display.innerHTML = t.main + '<small>.' + t.cs + '</small>'; }
+const now_ = () => elapsed + (timer ? performance.now() - startTime : 0);
+
+function toggle() {
+  if (timer) {
+    elapsed += performance.now() - startTime; clearInterval(timer); timer = null; running = false;
+    scene.classList.remove('battle');
+    startBtn.textContent = '계속'; startBtn.classList.remove('running'); lapBtn.disabled = true;
+  } else {
+    startTime = performance.now(); timer = setInterval(() => render(now_()), 30); running = true;
+    scene.classList.add('battle'); scene.classList.remove('idle');
+    startBtn.textContent = '정지'; startBtn.classList.add('running'); lapBtn.disabled = false; resetBtn.disabled = false;
+  }
+}
+function lap() {
+  if (!timer) return;
+  const total = now_();
+  laps.unshift({ n: laps.length + 1, split: total - lastLap, total }); lastLap = total;
+  lapsEl.innerHTML = laps.map(l => `<li><span>랩 ${l.n}</span><span>${fmt(l.split)}</span><span>${fmt(l.total)}</span></li>`).join('');
+  emptyEl.style.display = 'none';
+  $('snapSub').textContent = `랩 ${laps[0].n} · …나는 아이언맨이다.`;
+  runSnap();
+}
+function reset() {
+  clearInterval(timer); timer = null; running = false; elapsed = 0; lastLap = 0; laps = [];
+  scene.classList.remove('battle'); scene.classList.add('idle'); render(0); lapsEl.innerHTML = ''; emptyEl.style.display = '';
+  startBtn.textContent = '시작'; startBtn.classList.remove('running'); lapBtn.disabled = true; resetBtn.disabled = true;
+}
+startBtn.onclick = toggle; lapBtn.onclick = lap; resetBtn.onclick = reset;
+document.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (e.code === 'Space') { e.preventDefault(); toggle(); }
+  else if (e.key.toLowerCase() === 'l') lap();
+  else if (e.key.toLowerCase() === 'r') reset();
+});
+</script>
+</body>
+</html>
+
